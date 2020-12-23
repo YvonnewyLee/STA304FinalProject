@@ -700,8 +700,7 @@ knitr::kable(b_matrix, caption = "Coefficients Table", col.names = c("coefficien
 \label{eq:3}
 \begin{aligned}
 log(\frac{p}{1-p}) = 0.01168-1.68289x_{British Columbia}-0.76370x_{Manitoba}-1.16562x_{New Brunswick} \\
--1.59398x_{Newfoundland and Labrador}-1.66979x_{Nova Scotia}-1.53175x_{Ontario}+-1.57802x_{Prince Edward Island}-2.28472x_{Quebec} \\
--0.29713x_{Saskatchewan} + 0.59325x_{Never Attended University} + 0.67794x_{Male}
+-1.59398x_{Newfoundland and Labrador}-1.66979x_{Nova Scotia}-1.53175x_{Ontario}+-1.57802x_{Prince Edward Island}\\ -2.28472x_{Quebec}-0.29713x_{Saskatchewan} + 0.59325x_{Never Attended University} + 0.67794x_{Male}
 \end{aligned}
 \end{equation}
 
