@@ -1,30 +1,1031 @@
 ---
-title: "FinalProject"
-author: "WingYan Lee"
-date: "19/12/2020"
-output: pdf_document
+title: <center>Analyzing the effects of full voting rate on 2019 Canadian Federal Election -- The Conservatives Will Win</center>
+author: WingYan Lee 1004840381
+date: "21/12/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
 ---
 
-```{r setup, include=FALSE}
+Code and data supporting this analysis is available at:https://github.com/YvonnewyLee/STA304FinalProject
+
+# Abstract
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In this study, I aimed to investigate the effects of full turnout rate on the 2019 Canadian Federal Election. To achieve this goal, I built a logistic regression model based on the 2019 Canadian Election Study – Campaign-Period Survey(CPS) data and employed post-stratification using Canada's General Social Survey(GSS) to predict the outcome of 2019 election if all eligible Canadians have voted. After comparing to the actual results, I ended up with a conclusion that the Conservative Party will still win but the Liberal Party will have less share of the overall popular vote. This study is beneficial for campaign strategy analysts to develop appropriate approaches to increase the overall popular vote of their parties and for the general public to realize the potential effect of their voting choices.
+
+
+
+# Keywords
+Key words: Multi-level regression and Post-stratification(MRP), Logistic Regression, 2019 Canadian Federal Election,  Canada's General Social Survey(GSS), 2019 Canadian Election Study – Campaign-Period Survey(CPS)
+
+# Introduction
+&nbsp;&nbsp;&nbsp;&nbsp;     Statistical analysis has been applied widely in political science. It is useful in analyzing voter attitudes for campaign messaging, predicting the most effective marketing strategy and particularly, forecasting election results. In this case, census data is powerful since it provides detailed and comprehensive information of all potential voters. Thus, using census data to predict election results is the key to getting more accurate prediction.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     One important technique to forecast election results is through multi-level regression and post-stratification(MRP). This technique was originally developed by Gelman and T. Little in 1997 and was purposed for use in estimating US-state-level voter preference by Lax and Philips in 2009 [1]. In this report, I will use logistic regression model with post-stratification on census data to predict the 2019 Canadian Federal Election outcome if everyone had voted and compare it to the actual election results to analyze the importance of turnout rate. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The 2019 Canadian Federal Election, held on October 21, 2019, aimed to elect members of the 43rd Canadian Parliament. The Liberal Party, led by current Prime Minister Justin Trudeau, lost the overall popular vote to the Conservatives [15] but won enough seats to form a minority government. According to Global News, only 65.95% of eligible Canadian voters cast a ballot, which is a 2.35% drop from the turnout in 2015 [14]. One might wonder what the results will be if everyone has voted. Hence, it would be interesting to forecast the election outcome assuming that everyone has voted and compare it with the actual results. This analysis will be beneficial for the general public to realize the potential effects of their voting choices and for campaign strategy analysts to develop approaches to increase the overall popular vote of their parties.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     Two data sets, 2019 Canadian Election Study – Campaign-Period Survey(CPS) and Canada's General Social Survey(GSS), will be used to investigate how logistic regression models and post-stratification can be applied to predict how different the 2019 Canadian Federal Election outcome would have been if all eligible Canadians had voted. CPS will be used to build logistic regression model while GSS will be used as the census data for post-stratification. In the Methodology section, I describe the data and model used to perform post-stratification technique. Results of the analysis are provided in the Results section. The inference of the results, the potential weakness and future steps of this study are stated in the Discussion section.
+
+\newpage
+
+```{r, echo=FALSE, message=FALSE, results = "hide", warning=FALSE}
+# Clean CPS survey data
+
+#### Workspace setup ####
 knitr::opts_chunk$set(echo = TRUE)
+#install.packages("tidyverse")
+#install.packages("devtools")
+devtools::install_github("hodgettsp/cesR")
+library(tidyverse)
+library(cesR)
+
+# Read in the raw data.
+get_ces("ces2019_phone")
+
+
+# Keep some variables of interest
+survey_reduced_data <- 
+  ces2019_phone %>% 
+  select(age, # age
+         q3, # sex
+         q4, # province
+         q61, # education
+         q64, # place birth 
+         q69, # household income
+         q1, # for filtering out those who cannot vote
+         q11, # response variable
+         q12) # response variable for undecided voters
+
+#### Data Cleaning ####
+
+# 1. Omit others in Gender variable and mutate answers to match with GSS data
+survey_reduced_data <- 
+  survey_reduced_data %>% 
+  filter(q3 != 3 & !is.na(q3))
+
+survey_reduced_data$q3 <- 
+  ifelse(survey_reduced_data$q3 == 1, "Male", "Female")
+
+# 2. Filter legal age(>=18) and create groups
+survey_reduced_data <- 
+  survey_reduced_data %>% 
+  filter(age >= 18 & !is.na(age))
+
+survey_reduced_data <- 
+  survey_reduced_data %>% 
+  mutate(age_group = ifelse(18 <= age & age <= 30, "18-30", age))
+survey_reduced_data$age_group <- ifelse(30 < survey_reduced_data$age & 
+                                          survey_reduced_data$age <= 50, 
+                                        "31-50", survey_reduced_data$age_group)
+survey_reduced_data$age_group <- ifelse(50 < survey_reduced_data$age & 
+                                          survey_reduced_data$age <= 70, 
+                                        "51-70", survey_reduced_data$age_group)
+survey_reduced_data$age_group <- ifelse(survey_reduced_data$age > 70, 
+                                        "70+", survey_reduced_data$age_group)
+
+# 3. Mutate province values to match with GSS data
+survey_reduced_data <- 
+  survey_reduced_data %>% 
+  filter(!is.na(q4))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(prov_group = ifelse(q4 == 1, "Newfoundland and Labrador", q4))
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 2, 
+                                        "Prince Edward Island", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 3, 
+                                         "Nova Scotia", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 4, 
+                                         "New Brunswick", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 5, 
+                                         "Quebec", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 6, 
+                                         "Ontario", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 7, 
+                                         "Manitoba", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 8, 
+                                         "Saskatchewan", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 9, 
+                                         "Alberta", survey_reduced_data$prov_group)
+survey_reduced_data$prov_group <- ifelse(survey_reduced_data$q4 == 10, 
+                                         "British Columbia", survey_reduced_data$prov_group)
+
+# 4. Filter "Don't know" and "Refused" values and create education groups
+survey_reduced_data <-
+  survey_reduced_data%>%
+  filter(q61 != -9 & q61 != -8 & !is.na(q61))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(educ_group = ifelse(q61 <= 7, "Never attended university", q61))
+survey_reduced_data$educ_group <- ifelse(survey_reduced_data$q61 >= 8, 
+                                         "Attended university", survey_reduced_data$educ_group)
+
+# 5. Filter "Don't know" and "Refused" values and create birth place groups
+survey_reduced_data <-
+  survey_reduced_data%>%
+  filter(q64 != -9 & q64 != -8 & !is.na(q64))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(birthplace_group = ifelse(q64 <= 2, "Born in Canada", q64))
+
+survey_reduced_data$birthplace_group <- ifelse(survey_reduced_data$q64 >= 3, 
+                                         "Born outside Canada", survey_reduced_data$birthplace_group)
+
+# 6. Filter "Don't know" and "Refused" values and create household income groups
+survey_reduced_data <-
+  survey_reduced_data%>%
+  filter(q69 != -9 & q69 != -8 & !is.na(q69))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(income_group = ifelse(0 <= q69 & q69 <= 49999, "Low household income", q69))
+
+survey_reduced_data$income_group <- ifelse(survey_reduced_data$q69 >= 50000 &
+                                             survey_reduced_data$q69 <= 124999, 
+                                               "Middle household income", survey_reduced_data$income_group)
+
+survey_reduced_data$income_group <- ifelse(survey_reduced_data$q69 >= 125000, 
+                                           "High household income", survey_reduced_data$income_group)
+
+
+# 7. Filter and create new variables for response variables
+survey_reduced_data <-
+  survey_reduced_data%>%
+  filter(q11 != 9 & q11 != -8 & q11 != 7 & !is.na(q11))
+
+survey_reduced_data <-
+  survey_reduced_data%>%
+  filter(q12 == 1 | q12 == 2 | q12 == 3 | q12 == 4 | q12 == 5 | q12 == 6 | 
+           q12 == 8 |is.na(q12))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(vote_Liberal = ifelse(q11 == 1, 1, ifelse(q11 == -9 & q12 == 1, 1, 0)))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(vote_Conservative = ifelse(q11 == 2, 1, ifelse(q11 == -9 & q12 == 2, 1, 0)))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(vote_NDP = ifelse(q11 == 3, 1, ifelse(q11 == -9 & q12 == 3, 1, 0)))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(vote_BQ = ifelse(q11 == 4, 1, ifelse(q11 == -9 & q12 == 4, 1, 0)))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(vote_Green = ifelse(q11 == 5, 1, ifelse(q11 == -9 & q12 == 5, 1, 0)))
+
+survey_reduced_data <-
+  survey_reduced_data %>%
+  mutate(vote_People = ifelse(q11 == 6, 1, ifelse(q11 == -9 & q12 == 6, 1, 0)))
+
+survey_reduced_data <- 
+  survey_reduced_data %>%
+  mutate(vote_choice = ifelse(q11 == 1, "Liberal",
+                             ifelse(q11 == 2, "Conservatives",
+                                    ifelse(q11 == 3, "NDP",
+                                           ifelse(q11 == 4, "Bloc Québécois",
+                                                  ifelse(q11 == 5, "Green Party", "People’s Party"))))))
+
+# Delete extra variables
+survey_reduced_data <- survey_reduced_data %>%
+  select(-age, -q4, -q61, -q64, -q69, -q1, -q12, -q11)
+
+# Rename all columns to match with census data
+library(tidyverse)
+survey_reduced_data <- survey_reduced_data %>%
+  rename(
+    sex = q3,
+    age_group = age_group,
+    province = prov_group,
+    education = educ_group,
+    birthplace = birthplace_group,
+    income_group = income_group,
+    vote_Liberal = vote_Liberal,
+    vote_Conservative = vote_Conservative,
+    vote_NDP = vote_NDP,
+    vote_BQ = vote_BQ,
+    vote_Green = vote_Green,
+    vote_People = vote_People,
+    vote_choice = vote_choice
+  )
+
+# Saving the census data as a csv file in working directory
+write_csv(survey_reduced_data, "survey_data.csv")
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r, echo=FALSE, message=FALSE, results = "hide", warning=FALSE}
+# Clean GSS census data
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+#### Workspace setup ####
+library(tidyverse)
+# Read in the raw data.
+setwd("/Users/mandycao/Desktop/FinalProject/STA304FinalProject")
+census_data_raw <- read_csv("gss.csv")
 
-```{r cars}
-summary(cars)
+# Add the labels
+census_data_raw <- labelled::to_factor(census_data_raw)
+
+# Keep some variables of interest
+census_reduced_data <- 
+  census_data_raw %>% 
+  select(age,
+         sex, #gender
+         province,
+         education,
+         place_birth_canada,
+         income_family,
+         citizenship_status) # for filtering out those who cannot vote
+
+#### Data Cleaning ####
+
+# Filter out na values;
+# also filter out people who may not have Canadian citizenship
+# i.e. I am not confident that they can vote
+census_reduced_data <- na.omit(census_reduced_data)
+
+# 1. Sex variable remains unchanged.
+
+# 2. Filter legal age(>=18) and create groups
+
+# adjust for age in 2019
+census_reduced_data <- 
+  census_reduced_data %>%
+  mutate(age2019 = census_reduced_data$age + 2)
+
+# filter people who are at legal age to vote at 2019
+census_reduced_data <- 
+  census_reduced_data %>% 
+  filter(age2019 >= 18)
+
+# create groups
+census_reduced_data <- 
+  census_reduced_data %>% 
+  mutate(age_group = ifelse(18 <= age2019 & age2019 <= 30, "18-30", age2019))
+census_reduced_data$age_group <- ifelse(30 < census_reduced_data$age2019 & 
+                                          census_reduced_data$age2019 <= 50, 
+                                        "31-50", census_reduced_data$age_group)
+census_reduced_data$age_group <- ifelse(50 < census_reduced_data$age2019 & 
+                                          census_reduced_data$age2019 <= 70, 
+                                        "51-70", census_reduced_data$age_group)
+census_reduced_data$age_group <- ifelse(census_reduced_data$age2019 > 70, 
+                                        "70+", census_reduced_data$age_group)
+
+# 3. Province remains unchanged
+
+# 4. Create education groups
+census_reduced_data <- 
+  census_reduced_data %>% 
+  mutate(educ_group = ifelse(education == "Less than high school diploma or its equivalent" |
+                               education == "High school diploma or a high school equivalency certificate" |
+                               education == "Trade certificate or diploma" |
+                               education == "College, CEGEP or other non-university certificate or di...", 
+                             "Never attended university", education))
+
+census_reduced_data$educ_group <- ifelse(census_reduced_data$education == "Bachelor's degree (e.g. B.A., B.Sc., LL.B.)" |
+                                           census_reduced_data$education == "University certificate or diploma below the bachelor's level" |
+                                           census_reduced_data$education == "University certificate, diploma or degree above the bach...", 
+                                         "Attended university", census_reduced_data$educ_group)
+
+census_reduced_data$education <- 
+  ifelse(census_reduced_data$educ_group == "Never attended university", "Never attended university", "Attended university")
+
+# 5. Filter "Don't know" value in birth place variable 
+census_reduced_data <- 
+  census_reduced_data %>% 
+  filter(place_birth_canada != "Don't know")
+
+# 6. Regroup family income
+census_reduced_data <- 
+  census_reduced_data %>% 
+  mutate(income_group = ifelse(income_family == "Less than $25,000" |
+                               income_family == "$25,000 to $49,999", 
+                             "Low household income", income_family))
+
+census_reduced_data$income_group <- ifelse(census_reduced_data$income_family == "$50,000 to $74,999" |
+                                             census_reduced_data$income_family == "$75,000 to $99,999" |
+                                             census_reduced_data$income_family == "$100,000 to $ 124,999", 
+                                         "Middle household income", census_reduced_data$income_group)
+
+census_reduced_data$income_group <- ifelse(census_reduced_data$income_family == "$125,000 and more", 
+                                           "High household income", census_reduced_data$income_group)
+
+
+# Delete extra variables
+census_reduced_data <- census_reduced_data %>%
+  select(-age, -income_family, -educ_group, -citizenship_status,-age2019)
+
+# Rename all columns to match with survey data
+library(tidyverse)
+census_reduced_data <- census_reduced_data %>%
+  rename(
+    birthplace = place_birth_canada
+  )
+
+# Saving the not group by census data as a csv file in working directory
+write_csv(census_reduced_data, "census_data_nonGroupBy.csv")
+
+# For post-stratification
+census_reduced_data <- 
+  census_reduced_data %>%
+  count(sex,
+        age_group,
+        province,
+        education,
+        birthplace,
+        income_group) %>%
+  group_by(sex,
+           age_group,
+           province,
+           education,
+           birthplace,
+           income_group) 
+
+# Saving the census data as a csv file in working directory
+write_csv(census_reduced_data, "census_data.csv")
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+
+# Data
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+#install.packages("dplyr")
+#install.packages("tidyverse")
+#install.packages("ggplot2")
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+
+# Loading in the cleaned survey Data
+survey_data <- read.csv("survey_data.csv")
+
+# Loading in the cleaned census Data
+census_data <- read.csv("census_data.csv")
+
+# Loading in the cleaned non-group-by census Data
+census_data_non <- read.csv("census_data_nonGroupBy.csv")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+&nbsp;&nbsp;&nbsp;&nbsp;     Two data sets are used in this analysis. One is the 2019 Canadian Election Study – Campaign-Period Survey(CPS) [2] which is used as the survey data for modelling. The second one is the Canada's General Social Survey(GSS) [3] which is used as the census data for post-stratification.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The 2019 Canadian Election Study – Campaign-Period Survey (CPS) containing 4021 observations of 278 variables is obtained by using cesR package in R studio [4]. This data set contains information about attitudes and opinions of Canadians during the 2019 federal election. In this data set, data is collected by telephone interviews through either wireless telephone or landline telephone. All telephone data collection is completed with Computer Assisted Telephone Interviewing (CATI)[5]. Wireless telephone respondents are found by randomly chosen from a list of randomly generated telephone numbers generated by Advanis while landline telephone respondents are found by randomly chosen from ASDE, a sample provider[5]. For the initial non-responses, researchers will try to call at a minimum of 6 attempts. If no eligible respondent is reached, researchers will randomly select a new respondent to call.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The target population of CPS is Canadian citizens 18 years of age or older who reside in one of the ten Canadian provinces (excluding the territories)[5]. In addition, the frame population is the eligible Canadians who has a telephone or a cell-phone. The sample population is all eligible Canadians who were willing to take the survey. And the sample is 4021 eligible Canadians selected. Furthermore, the sampling frame are the list of landline numbers from ASDE and the list of wireless phone numbers generated internally by Advanis [5].
+
+&nbsp;&nbsp;&nbsp;&nbsp;     A key feature of CPS is that it employs the dual-frame-with-overlap approach to determine the overlap of people who have both a wireless and a landline phone and to correct for the higher selection probability of the overlap group. The strength of CPS data set is its large number of variables which provides many interesting factors to investigate. But a disadvantage of CPS is its small sample size, which is due to difficulty in collecting data. Moreover, there is no variable in CPS data set that records the respondent’s final voting choice. In the analysis, the variable which describes the party the respondent wants to vote for in CPS is used as the respondent’s final vote choice. However, the respondent could make a different decision, so the analysis could be inaccurate. In addition, neither the phone survey nor the web survey will be a true census; thus, using either one of them is not representative enough as it does not record everyone's voting choice.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The Canada's General Social Survey(GSS) which contains 20602 observations of 81 variables is obtained from University of Toronto online library. GSS contains information about the living conditions and well-being of Canadians. In this data set, researchers collect data by making phone calls through the same CATI techniques used in CPS data collection and interviewing a random qualified member of the household [6]. Thus, respondents are found by randomly contact through phone calls. However, for the non-responses, researchers will try to finish the survey at first. If they still fail, the weights of responses are then adjusted for the overall representativeness.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     For GSS, the target population is all non-institutionalized people who are 15 years old or older and are living in private households in the 10 provinces of Canada. Additionally, the frame population is all eligible Canadians with a telephone or a cell-phone. Furthermore, the sampling frames are the lists of telephone numbers in use (landline and cellular) available to Statistics Canada from various sources and the list of all dwellings within the 10 provinces. Besides, the sampled population is all eligible Canadians who are willing to take a questionnaire from a phone/telephone call [6]. And the sample is 20602 eligible Canadians selected. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;     A key feature of GSS is that researchers use Stratified Random Sampling on surveyed population with strata divided by different areas and conduct simple random sampling within each stratum without replacement[6]. In terms of advantages, GSS has a large data size with various attributes, which is beneficial for potential investigation. However, a major drawback is that GSS is used as census data in the analysis while it does not contain information of all Canadians. Hence, the respondents in this data set is not representative enough of the voting population despite of the large sample size. Another weakness is that the GSS data set is collected in 2017 while the goal of the analysis is to predict outcome of 2019 Canadian Election. Therefore, the outdated GSS data could potentially influence accuracy of the analysis. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;     After importing the data sets, I perform data cleaning to both CPS and GSS and extracte the variables of interest using tidyverse package in R studio [7] as well as cleaning code posted by Rohan Alexander and Sam Caetano [8]. For GSS data set, only variable sex, age, province, education, birth country and income are kept since they are the ones I am interested in. For CPS, I choose the same set of variables with one addition – voting choice, as the response variable which is required for modelling. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In CPS data set, there are two similar variables income and income range with income being a specific amount and income range being a distinctive level. I decide to use income and create a new income range variable based on income because the division of levels of the existing income range variable is different from the one in GSS, which could cause problems in modelling. Furthermore, in order to build six logistic models for each of the six parties in the Model section, I construct six new variables to indicate respondents’ voting choice based on two variables in CPS, one of which states the voting choice for determined respondents and the other one of which describes the most likely voting choice for undecided voters.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="Plots for survey data"}
+library(cowplot)
+library(ggplot2)
+
+bp1 <- survey_data %>% group_by(sex) %>% ggplot(aes(x=sex))+geom_bar(fill=2)+ggtitle("Barplot for Sex") + xlab("Sex")
+#make plot for the variable sex
+
+bp2 <- survey_data  %>% group_by(age_group) %>% ggplot(aes(y=age_group))+geom_bar(fill=3) +ggtitle("Barplot for Age") + ylab("Age")
+#make plot for the variable age group
+
+
+bp3 <- survey_data  %>% group_by(province) %>% ggplot(aes(y=province))+geom_bar(fill=4) +ggtitle("Barplot \n for Province") + ylab("Province")
+#make plot for the variable province
+
+
+bp4 <- survey_data  %>% group_by(education) %>% ggplot(aes(y=education))+geom_bar(fill=5) +ggtitle("Barplot \n for Eduaction") + ylab("Education")
+#make plot for the variable education
+
+plot_grid(bp1,bp2,bp3,bp4,labels=c(1,2,3,4),ncol=2,nrow=2)#combine 4 plots into 1 page
+```
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;     Looking at the above plots in Figure 1, 3-5, we can gain some insights about these two datasets. Plot 1-7 illustrate the distribution of data for each of the 6 variables of interest plus a response variable in the survey data (CPS). Meanwhile, plot 8 – 13 describe the data distribution for all 6 variables of interest in the census data (GSS). Note that plot 5-13 are included in the Appendix section (1). By plot 1-7, it can be seen that most variables in CPS are not evenly distributed. For example, the respondents in survey data have a higher male ratio and a much higher ratio of born in Canada. Additionally, most respondents live in Ontario, Quebec and British Columbia and they are in the age groups of 31-50 and 51-70. This similar trend can be observed in the census data as well. For example, most respondents in census data are born in Canada and live in Ontario, Quebec and British Columbia. As for the response variable in survey data, most people vote for the Liberal and the Conservatives with the Conservatives having slightly more votes than the Liberal.
+
+
+# Method
+
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+#install.packages("lme4")
+library(lme4)
+full_Liberal <- glm(vote_Liberal ~ sex + age_group + province + education + birthplace + income_group, data = survey_data, family = "binomial")
+full_Conservative <- glm(vote_Conservative ~ sex + age_group + province + education + birthplace + income_group, data = survey_data, family = "binomial")
+full_NDP<- glm(vote_NDP ~ sex + age_group + province + education + birthplace + income_group, data = survey_data, family = "binomial")
+full_BQ<- glm(vote_BQ ~ sex + age_group + province + education + birthplace + income_group, data = survey_data, family = "binomial")
+full_Green <- glm(vote_Green ~ sex + age_group + province + education + birthplace + income_group, data = survey_data, family = "binomial")
+full_People <- glm(vote_People ~ sex + age_group + province + education + birthplace + income_group, data = survey_data, family = "binomial")
+
+```
+
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+# Liberal
+# AIC Selection
+modaic_Liberal <- step(full_Liberal, trace = 0, k = 2)
+summary(modaic_Liberal)
+
+# BIC Selection
+modbic_Liberal <- step(full_Liberal, trace = 0, k = log(nrow(survey_data)))
+summary(modbic_Liberal)
+
+# Final model BIC
+final_Liberal <- glm(vote_Liberal ~ province + education + birthplace, data = survey_data, family = "binomial")
+
+```
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+# Conservative
+# AIC Selection
+modaic_Conservative <- step(full_Conservative, trace = 0, k = 2)
+summary(modaic_Conservative)
+
+# BIC Selection
+modbic_Conservative <- step(full_Conservative, trace = 0, k = log(nrow(survey_data)))
+summary(modbic_Conservative)
+
+# Final model BIC
+final_Conservative <- glm(vote_Conservative ~ sex + province + education, data = survey_data, family = "binomial")
+
+```
+
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+# Green
+# AIC Selection
+modaic_Green <- step(full_Green, trace = 0, k = 2)
+summary(modaic_Green)
+
+# BIC Selection
+modbic_Green <- step(full_Green, trace = 0, k = log(nrow(survey_data)))
+summary(modbic_Green)
+
+# Final model AIC
+final_Green <- glm(vote_Green ~ sex + province + education + birthplace + 
+    income_group, data = survey_data, family = "binomial")
+
+```
+
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+# NDP
+# AIC Selection
+modaic_NDP <- step(full_NDP, trace = 0, k = 2)
+summary(modaic_NDP)
+
+# BIC Selection
+modbic_NDP<- step(full_NDP, trace = 0, k = log(nrow(survey_data)))
+summary(modbic_NDP)
+
+# Final model AIC
+final_NDP <- glm(vote_NDP ~  sex + age_group + province + income_group, data = survey_data, family = "binomial")
+
+```
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+# BQ
+# AIC Selection
+modaic_BQ <- step(full_BQ, trace = 0, k = 2)
+summary(modaic_BQ)
+
+# BIC Selection
+modbic_BQ <- step(full_BQ, trace = 0, k = log(nrow(survey_data)))
+summary(modbic_BQ)
+
+# Final model AIC
+final_BQ <- glm(vote_BQ ~  age_group + province + birthplace, data = survey_data, family = "binomial")
+
+```
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+# People
+# AIC Selection
+modaic_People <- step(full_People, trace = 0, k = 2)
+summary(modaic_People)
+
+# BIC Selection
+modbic_People <- step(full_People, trace = 0, k = log(nrow(survey_data)))
+summary(modbic_People)
+
+# Final model AIC
+final_People <- glm(vote_People ~  sex + province + education, data = survey_data, family = "binomial")
+
+```
+
+```{r, echo=FALSE, message=FALSE, results = "hide"}
+# Here I will perform the post-stratification calculation
+# Liberal
+census_data$logodds_estimateLiberal <-
+  final_Liberal %>%
+  predict(newdata = census_data)
+
+census_data$estimateLiberal <-
+  exp(census_data$logodds_estimateLiberal)/(1+exp(census_data$logodds_estimateLiberal))
+
+census_data %>%
+  mutate(alp_predict_propLiberal = estimateLiberal*n) %>%
+  summarise(alp_predictLiberal = sum(alp_predict_propLiberal)/sum(n))
+
+
+# Conservative
+census_data$logodds_estimateConservative <-
+  final_Conservative %>%
+  predict(newdata = census_data)
+
+census_data$estimateConservative <-
+  exp(census_data$logodds_estimateConservative)/(1+exp(census_data$logodds_estimateConservative))
+
+census_data %>%
+  mutate(alp_predict_propConservative = estimateConservative*n) %>%
+  summarise(alp_predictConservative = sum(alp_predict_propConservative)/sum(n))
+
+# NDP
+census_data$logodds_estimateNDP <-
+  final_NDP %>%
+  predict(newdata = census_data)
+
+census_data$estimateNDP <-
+  exp(census_data$logodds_estimateNDP)/(1+exp(census_data$logodds_estimateNDP))
+
+census_data %>%
+  mutate(alp_predict_propNDP = estimateNDP*n) %>%
+  summarise(alp_predictNDP = sum(alp_predict_propNDP)/sum(n))
+
+# BQ
+census_data$logodds_estimateBQ <-
+  final_BQ %>%
+  predict(newdata = census_data)
+
+census_data$estimateBQ <-
+  exp(census_data$logodds_estimateBQ)/(1+exp(census_data$logodds_estimateBQ))
+
+census_data %>%
+  mutate(alp_predict_propBQ = estimateBQ*n) %>%
+  summarise(alp_predictBQ = sum(alp_predict_propBQ)/sum(n))
+
+# Green
+census_data$logodds_estimateGreen <-
+  final_Green %>%
+  predict(newdata = census_data)
+
+census_data$estimateGreen <-
+  exp(census_data$logodds_estimateGreen)/(1+exp(census_data$logodds_estimateGreen))
+
+census_data %>%
+  mutate(alp_predict_propGreen = estimateGreen*n) %>%
+  summarise(alp_predictGreen = sum(alp_predict_propGreen)/sum(n))
+
+# People
+census_data$logodds_estimatePeople <-
+  final_People %>%
+  predict(newdata = census_data)
+
+census_data$estimatePeople <-
+  exp(census_data$logodds_estimatePeople)/(1+exp(census_data$logodds_estimatePeople))
+
+census_data %>%
+  mutate(alp_predict_propPeople = estimatePeople*n) %>%
+  summarise(alp_predictPeople = sum(alp_predict_propPeople)/sum(n))
+
+```
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In this study, I aim to investigate the difference between the actual 2019 Canadian Federal Election popular vote outcome and my prediction if all eligible Canadians have voted. Note that eligible Canadians are defined as 18 years old or older Canadian citizens who have the right to vote in this analysis.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In order to compare the difference, I build six logistic regression models each of which predicts the probability that one of the six major parties will win the popular vote in 2019 Canadian Federal Election. Then I compare the six probability and the highest one will indicate the predicted winner party in the 2019 election. Throughout the analysis, I start with the same logistic regression model using the survey data [2], employ the same kind of technique in finding the best model and perform post-stratification using the census data [3] to all six models to obtain the results. 
+
+
+## Model Specifics
+
+&nbsp;&nbsp;&nbsp;&nbsp;     For each of the six major parties (Liberal Party of Canada, Conservative Party of Canada, Bloc Québécois, New Democratic Party, Green Party of Canada and People’s Party ) [9], the outcome of the model should be whether this party will win the popular vote of the 2019 election or not. Since the response is a binary variable, a frequentist logistic regression model is suitable to model the proportion of voters who will vote for this party.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     To enable post-stratification afterwards, the variables of interest in survey data and census data should match. After careful comparison, only variable age, sex, education, province, birth place, income, importance of religion and marital status exist in both data sets. However, marital status is not used because this variable comes from the post-election survey in survey data. Not using marital status means that the method and analysis I describe here could have been used to predict real-time predictions during the 2019 election [10]. In addition, importance of religion is not kept in the model since there are many missing values in this column, which would significantly decrease the number of sample size after cleaning. Thus, only the remaining 6 variables are considered for the initial full model.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In order to make the model simpler, cleaner and more concise, observations with missing values are removed and some categorical variables are 
+regrouped into fewer but more representative groups. For example, education, birth place and income group originally have multiple levels. They are now grouped into fewer levels to be more representative and more distinguishable. Furthermore, I create age groups instead of using age as a numerical variable to allow for splitting cells based on age groups in the post-stratification step. As for the response variable in survey data, I use the variable which indicates the respondent’s most likely voting choice as the predictor of his final voting choice and construct six new variables for each of the six logistic regression models. All data cleaning and wrangling steps are accomplished in RStudio[4, 7, 8].
+
+&nbsp;&nbsp;&nbsp;&nbsp;     To account for the condition that all eligible Canadians have voted, all respondents who are either less than 18 years old or do not have Canadian citizenship are removed from the survey data. Additionally, to ensure that “everyone” has voted, I keep undecided voters and use their most likely voting choice as their final voting choice. Also, respondents who decide to spoil the ballot are not removed. According to CBC, spoiled ballots are rejected and do not have strong political consequence[11]. Hence, if everyone has to vote, one still has the option of spoiling the ballot if he doesn’t want to vote for any party and spoiling the ballot should also count as a form of voting. However, those observations will indicate false for all six response variables since they don’t vote for any party. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;     For the model selection process, the initial full model starts off with 6 variables of interest as mentioned above. Then, stepwise selection is used according to both AIC and BIC criterion. Both criterions penalizes models having a large number of predictor variables with BIC enforcing stricter penalties. After that, I compare the two models obtained and choose the one with smaller AIC. If both have similar AIC, then the model with more appropriate number of predictor variables is preferred.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     For example, when building the model for Conservative Party, the model obtained using AIC includes 6 predictor variables while the one by BIC only includes 3 predictors. Their corresponding AIC values are 2888.2 and 2907.4 respectively, which is very close. In the end, I select the model using BIC criterion and save the more complex one as an alternative model. This is because a model with fewer predictors is easier to describe and understand and also reduces the difficulty for data collection process if we want to use it for prediction. On the other hand, the alternative model is useful when we want to make more accurate predictions with more predictors and more adequate information on collected data. But the alternative model could be too complex for understanding and may suffer from overfitting.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for Conservative Party is :
+\begin{equation}
+\label{eq:1}
+\begin{aligned}
+log(\frac{p}{1-p}) = \beta_0 + \beta_1x_{British Columbia}+\beta_2x_{Manitoba}+ \beta_3x_{New Brunswick}+\beta_4x_{Newfoundland and Labrador}+\beta_5x_{Nova Scotia} \\ +\beta_6x_{Ontario}+\beta_7x_{Prince Edward Island} + \beta_8x_{Quebec}
++ \beta_9x_{Saskatchewan} + \beta_{10}x_{Never Attended University} + \beta_{11}x_{Male}
+\end{aligned}
+\end{equation}
+
+where $log(\frac{p}{1-p})$ represents the log odds of the proportion of voters who will vote for the Conservative. In other words, it is the log ratio of probability of voting for Conservative to probability of not voting for Conservative. Moreover, $\beta_0$ is the intercept of the model which represents the log ratio of probability of voting for Conservative to probability of not voting for Conservative if the voter is born in Canada, has attended university and lives in Alberta. Additionally, $\beta_1$ represents how much the log ratio of probability we expect to change for a voter who lives in British Columbia ($x_{British Columbia} = 1$) compared to a voter lives in other provinces ($x_{British Columbia} = 0$), keeping all other variables fixed. The other coefficients have similar meanings as the first two described above. Note that all coefficients in equation (1) are dummy variables except for $\beta_0$. All of them indicate whether or not the voter belongs to a group with 1 meaning the voter do belong to the group and 0 meaning the opposite.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The other 5 final logistic regression models in equation (4-8) for other parties are listed in the Appendix section (2). 
+
+
+```{r, results = "hide", echo=FALSE, message=FALSE, fig.cap= "ROC Curve for Conservative Party"}
+# ROC curves for model performance
+# install.packages("pROC")
+library(pROC)
+p <- predict(final_Conservative, newdata = survey_data, type = "response")
+roc <- roc(survey_data$vote_Conservative ~ p)
+## The True Positive Rate ##
+TPR <- roc$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red', xlab = "ROC for Survey Data",
+     ylab = "True Positive Rate")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc),3)))
+auc(roc)
+```
+
+
+&nbsp;&nbsp;&nbsp;&nbsp;     Last but not least, the performance of final model is validated by calculating the AUC value in the Receiver Operating Characteristic (ROC) curve using the pROC package in RStudio [12]. The value is expected to be far from 0.5 and closer to 1. By the ROC plot in Figure 2, the AUC value is 0.708, which shows a decent discrimination ability of the final model for Liberal Party. A similar procedure is performed for the other five final models for other parties, which could be verified by Figure 6-10 in the Appendix section (3).
+
+## Post-stratification
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In order to estimate the proportion of voters who will vote for a certain party, a post-stratification analysis is employed. Firstly, I divide the census data into 811 demographic cells based on their different features - sex, age group, province, education, birth place and income group. For each demographic cell, the proportion of voters is estimated. Then each proportion estimate within each bin is weighted by the respective population size of that bin. Finally, I sum those values and divided that by the entire population size to estimate the population-level proportion of people voting for a certain party.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The formula I used to calculate the post-stratified proportion is :
+
+\begin{equation}
+\label{eq:2}
+\hat{y}^{PS}=\frac{\sum_jN_j\hat{y}_j}{\sum_jN_j}
+\end{equation}
+
+where $\hat{y}_j$ is the estimate of proportion of voters for this party, for example Conservative Party, in the $j^{th}$ cell, $N_j$ is the population size of the $j^{th}$ cell based off demographics (from census data).
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The previous 6 variables of interest are all included in the cell division process because they are all likely to influence the voting outcome from a practical perspective. First of all, age has been observed as an important factor influencing political behaviors and study shows that older people tend to be more certain to vote [13]. Secondly, province is also influential since different provinces often have different economic conditions and political preferences, which could potentially affect the voters’ decisions. According to the ACS - Environics survey, Canadians with lower incomes and less education express less certainty about their intention to vote in the federal election [13]. Thus, income and education are also important factors to be considered. Finally, sex and birth place influence people’s self-identity, values and attitudes towards the relevant policies which concern their own benefits.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The post-stratification analysis is beneficial in this case since it can reduce the bias of representativeness in the population by accounting more for non-major groups when we use non-probability based sampling. With this technique, those underrepresented groups would contribute to the final result uniquely. Moreover, it could result in smaller variances in our predictions by capturing the inner patterns. As mentioned earlier in the Data section that the census data is not representative enough despite of its large sample size,  without this technique, it would be difficult to generate accurate forecasts in this analysis. 
+
+\newpage
+
+# Results
+
+&nbsp;&nbsp;&nbsp;&nbsp;     From the previous section, I have derived a frequentist logistic regression model by equation (1, 4-8) to predict the overall popular vote for each party of the 2019 Canadian Federal Election. Then a post-stratification analysis is performed on each model to estimate the proportion of voters in favor of each party.The below Table 1 lists out all significant predictor variables and its corresponding coefficient values of the model for Conservative Party. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+b_value <- c(0.01168, -1.68289, -0.76370, -1.16562, -1.59398, -1.66979, -1.53175, -1.57802, -2.28472, -0.29713, 0.59325, 0.67794)
+b_name <- c("$\\beta_0$", "$\\beta_1$", "$\\beta_2$", "$\\beta_3$", "$\\beta_4$", "$\\beta_5$", "$\\beta_6$", "$\\beta_7$", "$\\beta_8$", "$\\beta_9$", "$\\beta_{10}$", "$\\beta_{11}$")
+b_x <- c("intercept", "$x_{British Columbia}$", "$x_{Manitoba}$", "$x_{New Brunswick}$", "$x_{Newfoundland and Labrador}$", "$x_{Nova Scotia}$", "$x_{Ontario}$", "$x_{Prince Edward Island}$", "$x_{Quebec}$", "$x_{Saskatchewan}$", "$x_{Never Attended University}$", "$x_{Male}$")
+b_matrix <- data.frame(b_name, b_x, b_value)
+knitr::kable(b_matrix, caption = "Coefficients Table", col.names = c("coefficient", "predictor variable", "value"))
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In the above Table 1, $\beta_0$ represents that if the voter is born in Canada, has attended university and lives in Alberta, then the log ratio of probability of voting for Conservative to probability of not voting for Conservative is 0.01168. And $\beta_1$ represents that the log ratio of probability is expected to decrease by -1.68289 for a voter who lives in British Columbia ($x_{British Columbia} = 1$) compared to a voter lives in other provinces ($x_{British Columbia} = 0$), keeping all other variables fixed. Similarly, $\beta_2$ represents the expected decrease of -0.76370 in log ratio of probability for a voter who lives in Manitoba compared to a voter lives in other provinces, keeping all other variables fixed. A similar interpretation can also be made with $\beta_3$, $\beta_4$, $\beta_5$, $\beta_6$, $\beta_7$, $\beta_8$ and $\beta_9$. For $\beta_{10}$, it represents the expected increase of 0.59325 in log ratio of probability of voting for Conservative to probability of not voting for Conservation for a voter who has never attended university ($x_{Never Attended University} = 1$) compared to someone who has attended university ($x_{Never Attended University} = 0$).  Lastly, $\beta_{11}$ represents that for a male voter ($x_{Male} = 1$), we expect the log ratio of probability to increase by 0.67794 compared a female voter ($x_{Female} = 1$).
+
+&nbsp;&nbsp;&nbsp;&nbsp;     Combined with the above coefficients, the final model for Conservative Party in equation (1) can be re-expressed as the following. Using the same approach, we can obtain the final models for other parties, which are listed in the Appendix section (4).
+
+\begin{equation}
+\label{eq:3}
+\begin{aligned}
+log(\frac{p}{1-p}) = 0.01168-1.68289x_{British Columbia}-0.76370x_{Manitoba}-1.16562x_{New Brunswick} \\
+-1.59398x_{Newfoundland and Labrador}-1.66979x_{Nova Scotia}-1.53175x_{Ontario}+-1.57802x_{Prince Edward Island}-2.28472x_{Quebec} \\
+-0.29713x_{Saskatchewan} + 0.59325x_{Never Attended University} + 0.67794x_{Male}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     Based off the post-stratification analysis of the proportion of voters in favor of Conservative Party modelled by a logistic regression model which accounted for province, sex and education, I estimate that the proportion of voters in favor of voting for Conservative Party of Canada to be 0.3457622. Similarly, the proportion of voters in favor of voting for other parties can be estimated and the results are listed in the Table 2 below. In Table 2, it can be seen that the estimation of proportion of voters in favor of voting for Liberal Party of Canada to be 0.329648, which is slightly less than the proportion for Conservative Party.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+party <- c("Liberal Party of Canada", "Conservative Party of Canada", "New Democratic Party", "Bloc Québécois", "Green Party of Canada", "People’s Party")
+prop <- c(0.329648, 0.3457622, 0.144725, 0.04520414, 0.101553, 0.0150300)
+p_matrix <- data.frame(party, prop)
+knitr::kable(p_matrix, caption = "Results Table", col.names = c("Political Party", "Proportion of voters in favor of this party"))
+```
+
+
+# Discussion
+
+## Summary
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In this study, I access a survey data (CPS) and a census data (GSS) to develop six logistic regression models. The survey data I used is collected by random phone interviews with eligible Canadian voters from different provinces of Canada about their opinions towards the 2019 Canadian Federal Election [2] while the census data is collected using the similar approach but including non-eligible-to-vote Canadians [3].
+
+&nbsp;&nbsp;&nbsp;&nbsp;     I first standardized variable categories in both data sets and removed the voters who refuse to answer in the survey data set to avoid biased results, then establish a frequentist logistic regression model using the survey data. After that, the model is validated using AUC values. However, the survey data is non-representative since it will never be a true census. Besides, the census data is collected in 2017 and it does not truly contains demographic information of all Canadians. Thus, a post-stratification analysis is performed using the census data to reduce the bias of representativeness in the population and to get an accurate prediction of the overall popular vote for each party if all eligible Canadians have voted.
+
+## Conclusion
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In conclusion, my analysis suggests that Conservative Party of Canada will win the most popular vote in 2019 Canadian Federal Election if everyone has voted. By looking at Table 3, since Conservative Party of Canada has the highest proportion of voters in favor of voting (34.58%) which is slightly more than the Liberal’s, it is likely to win the overall popular vote if all eligible voters have voted. Note that voters who “don’t know” which party to vote are counted as spoiling the ballot in the analysis. Hence, it is possible that they would their decision and the actual outcome could change.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+party <- c("Liberal Party of Canada", "Conservative Party of Canada", "New Democratic Party", "Bloc Québécois", "Green Party of Canada", "People’s Party")
+prop <- c(0.329648, 0.3457622, 0.144725, 0.04520414, 0.101553, 0.0150300)
+p_matrix <- data.frame(party, prop)
+knitr::kable(p_matrix, caption = "Results Table", col.names = c("Political Party", "Proportion of voters in favor of this party"))
+```
+
+&nbsp;&nbsp;&nbsp;&nbsp;     In comparison, the actual outcome of the 2019 Canadian Federal Election with a 65.95% turnout rate [14] is that Conservative Party also won the popular vote with a 34.34% vote while the Liberal Party has a 33.12% popular vote [15] which is bigger than my prediction. Meanwhile, the actual results for New Democratic Party (15.98%) and People’s Party (1.62%) is similar to the prediction. However, if everyone has voted, the proportion of votes supporting the Green Party of Canada is likely to increase while the overall popular vote for Bloc Québécois will decrease. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;     To be concluded, under the assumption of full turnout rate, the Conservative Party is still likely to win but the Liberal Party will have a smaller share of popular vote. Besides, different parties will experience different changes in popular vote. Therefore, if a party’s popular vote increases as turnout rate increases, it needs to encourage voters to vote in order to have more popular vote.
+
+
+## Weakness
+
+&nbsp;&nbsp;&nbsp;&nbsp;     There are several drawbacks that needs to be aware of in this analysis: bias from data sets,  inappropriate way of data cleaning and inaccuracy of prediction.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The first one is the bias resulted from my choices of data sets. I choose the phone survey data instead of web survey data as my survey data; however, none of these will be a true census data. Hence, the model built using survey data cannot make very accurate predictions. Besides, combining the phone survey data and the web survey data is not a good idea either. Complicated coding may be required to achieve it and it is challenging to deal with the overlapping issues. Additionally, the census data used for post-stratification is outdated since it is collected in 2017 and used to make predictions of 2019 election. Although age has been adjusted in the analysis to allow voters who are eligible to vote in 2019 but not eligible in 2017, other factors including education and income may have changed dramatically over the course of two years, which could potentially affect one’s political opinions. 
+
+&nbsp;&nbsp;&nbsp;&nbsp;     Another weakness arises when we need to map gender in survey data to sex in census data. I choose to remove respondents who do not identify as either male or female from the sample, which is a common and easy approach. However, as described in “Using sex and gender in survey adjustment”, this method would mean that the responses of non-binary individuals are not counted in the analysis where the goal is make population generalizations and predict election outcome [16]. Moreover, this structural exclusion is a form of discrimination against those respondents who have different identities. Luckily, the census data only contains one of such observation and removing it does not significantly affect the prediction. But it is still an unfair approach.
+
+&nbsp;&nbsp;&nbsp;&nbsp;     Last but not least is the inaccuracy of prediction due to several factors. One of them is removing voters who “refused” to answer the survey. For simplicity, I choose to remove the voters who select “refused” or “don’t know” when they are asked about which party they want to vote for. Such approach ignores that those voters are still possible to vote, which could change the actual outcome. Another factor is that I use respondents’ most likely voting choice as their final voting choice. However, it is still possible that they change their decisions at the actual election. Thus, the prediction could be inaccurate. 
+
+## Next Step
+
+&nbsp;&nbsp;&nbsp;&nbsp;     For the next step, I plan to look for better alternative census data that is closer to 2019. Then I will redo the post-stratification using the new census data to check for improvement in the model. Besides, a multilevel regression model could be considered to further stress the difference between groups. A follow-up analysis can be conducted to see if there is any improvement in prediction. Furthermore, more research can be done to investigate how turnout rate influences the election and learn from the previous elections. In this way, I can refine the model and post-stratification to have more precise predictions.
+
+
+\newpage
+
+# References
+1. Multilevel regression with post-stratification (2020, 12 22). Retrieved from Wikipedia: https://en.wikipedia.org/wiki/Multilevel_regression_with_poststratification
+2. Stephenson, Laura B; Harell, Allison; Rubenson, Daniel; Loewen, Peter John, 2020, "2019 Canadian Election Study - Phone Survey", https://doi.org/10.7910/DVN/8RHLG1, Harvard Dataverse, V1
+3. CHASS Data Centre, Faculty of Art and Science of University of Toronto, 2020, http://dc.chass.utoronto.ca/myaccess.html 
+4. Paul A. Hodgetts and Rohan Alexander (2020). cesR: Access the CES Datasets a Little Easier.. R package
+  version 0.1.0.
+5. Stephenson, Laura B; Harell, Allison; Rubenson, Daniel; Loewen, Peter John, 2020, "2019 Canadian Election Study - Phone Survey Technical Report.pdf", 2019 Canadian Election Study - Phone Survey, https://doi.org/10.7910/DVN/8RHLG1/1PBGR3, Harvard Dataverse, V1
+6. Statistics Canada, 2020. “General Social Survey”
+https://sda-artsci-utoronto-ca.myaccess.library.utoronto.ca/sdaweb/dli2/gss/gss31/gss31/more_doc/GSS31_User_Guide.pdf
+7. Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+8. Rohan Alexander, Sam Caetano (2020, 12 22). https://q.utoronto.ca/courses/184060/files/9422740?module_item_id=1867317
+9. Wikipedia. 2020. “List of federal political parties in Canada”
+https://en.wikipedia.org/wiki/List_of_federal_political_parties_in_Canada
+10. Wei Wang, D. R. (2020, 12 22). Forecasting elections with non-representative polls. Retrieved from ScienceDirect: https://www.sciencedirect.com/science/article/abs/pii/S0169207014000879
+11. Mullin, M. (2020, 12 22). Here's what happens when you spoil a ballot. Retrieved from CBC: https://www.cbc.ca/news/canada/newfoundland-labrador/spoiled-ballots-1.5136461
+12. Xavier Robin, Natacha Turck, Alexandre Hainard, Natalia Tiberti, Frédérique Lisacek, Jean-Charles Sanchez and Markus Müller (2011). pROC: an open-source package for R and S+ to analyze and compare ROC curves. BMC Bioinformatics, 12, p. 77.  DOI: 10.1186/1471-2105-12-77 <http://www.biomedcentral.com/1471-2105/12/77/>
+13. Jedwab, J. (2020, 12 22). Intention and impact: Canadians reflect on their votes. Retrieved from Policy Options: https://policyoptions.irpp.org/magazines/north-american-integration/intention-and-impact-canadians-reflect-on-their-votes/
+14. Britneff, B. (2020, 12 22). Canada election: The 2019 results by the numbers. Retrieved from Global News: https://globalnews.ca/news/6066524/canada-election-the-2019-results-by-the-numbers/
+15. Wikipedia. (2020, 12 22). Retrieved from 2019 Canadian federal election: https://en.wikipedia.org/wiki/2019_Canadian_federal_election
+16. Lauren Kennedy, K. K. (2020, 12 22). Cornell University. Retrieved from https://arxiv.org/abs/2009.14401
+
+
+\newpage
+
+
+# Appendix
+
+1. Plot 5-13 for Data section
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="Plot5-7 for survey data"}
+library(cowplot)
+library(ggplot2)
+
+bp5 <- survey_data  %>% group_by(birthplace) %>% ggplot(aes(y=birthplace))+geom_bar(fill=5) +ggtitle("Barplot for \n Birth place") + ylab("Birth place")
+#make plot for the variable birth place
+
+bp6 <- survey_data %>% group_by(income_group) %>% ggplot(aes(y=income_group))+geom_bar(fill=6) +ggtitle("Barplot for Income") + ylab("Income")
+#make plot for the variable income group
+
+bp7 <- survey_data %>% group_by(vote_choice) %>% ggplot(aes(y=vote_choice))+geom_bar(fill=2) +ggtitle("Barplot for \n Voting choice") + ylab("Voting choice")
+#make plot for the variable vote Liberal
+
+plot_grid(bp5,bp6,bp7,labels=c(5,6,7),ncol=2,nrow=2)#combine 4 plots into 1 page
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="Plot8-11 for census data"}
+bp11 <- census_data_non %>% group_by(sex) %>% ggplot(aes(x=sex))+geom_bar(fill=2)+ggtitle("Barplot for Sex") + xlab("Sex")
+#make plot for the variable sex
+
+bp12 <- census_data_non  %>% group_by(age_group) %>% ggplot(aes(y=age_group))+geom_bar(fill=3) +ggtitle("Barplot for Age") + ylab("Age")
+#make plot for the variable age group
+
+bp13 <- census_data_non %>% group_by(income_group) %>% ggplot(aes(y=income_group))+geom_bar(fill=6) +ggtitle("Barplot for Income") + ylab("Income")
+#make plot for the variable income group
+
+bp14 <- census_data_non  %>% group_by(education) %>% ggplot(aes(y=education))+geom_bar(fill=5) +ggtitle("Barplot \n for Eduaction") + ylab("Education")
+#make plot for the variable education
+
+plot_grid(bp11,bp12,bp13,bp14,labels=c(8,9,10,11),ncol=2,nrow=2)#combine 4 plots into 1 page
+```
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.cap="Plot12-13 for census data"}
+bp15 <- census_data_non  %>% group_by(birthplace) %>% ggplot(aes(y=birthplace))+geom_bar(fill=5) +ggtitle("Barplot for \n Birth place") + ylab("Birth place")
+#make plot for the variable birth place
+
+bp16 <- census_data_non  %>% group_by(province) %>% ggplot(aes(y=province))+geom_bar(fill=4) +ggtitle("Barplot \n for Province") + ylab("Province")
+#make plot for the variable province
+
+
+plot_grid(bp15,bp16,labels=c(12,13),ncol=1,nrow=2)#combine 4 plots into 1 page
+```
+
+\newpage
+
+2. 5 other Final models for Model section
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for Liberal Party is :
+\begin{equation}
+\label{eq:4}
+\begin{aligned}
+log(\frac{p}{1-p}) = \beta_0 + \beta_1x_{British Columbia}+\beta_2x_{Manitoba}+ \beta_3x_{New Brunswick}+\beta_4x_{Newfoundland and Labrador}+\beta_5x_{Nova Scotia} \\
++\beta_6x_{Ontario}+\beta_7x_{Prince Edward Island} + \beta_8x_{Quebec}
++ \beta_9x_{Saskatchewan} + \beta_{10}x_{Never Attended University} + \beta_{11}x_{Born outside Canada}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for NDP Party is :
+\begin{equation}
+\label{eq:5}
+\begin{aligned}
+log(\frac{p}{1-p}) = \beta_0 + \beta_1x_{Male}+\beta_2x_{31-50}+ \beta_3x_{51-70}+\beta_4x_{70+} + \beta_5x_{British Columbia}+\beta_6x_{Manitoba}+ \beta_7x_{New Brunswick} \\ +\beta_8x_{Newfoundland and Labrador} +\beta_9x_{Nova Scotia} +\beta_{10}x_{Ontario}+\beta_{11}x_{Prince Edward Island} + \beta_{12}x_{Quebec}+\beta_{13}x_{Saskatchewan} \\
++\beta_{14}x_{Low Household Income}+\beta_{15}x_{Middle Household Income}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for Green Party is :
+\begin{equation}
+\label{eq:6}
+\begin{aligned}
+log(\frac{p}{1-p}) = \beta_0 + \beta_1x_{Male}+\beta_2x_{British Columbia}+\beta_3x_{Manitoba}+ \beta_4x_{New Brunswick} +\beta_5x_{Newfoundland and Labrador} \\ +\beta_6x_{Nova Scotia} +\beta_7x_{Ontario} +\beta_8x_{Prince Edward Island} +\beta_9x_{Quebec}+\beta_{10}x_{Saskatchewan} + \beta_{11}x_{Never Attended University} \\ + \beta_{12}x_{Born outside Canada} + \beta_{13}x_{Low Household Income} + \beta_{14}x_{Middle Household Income}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for BQ Party is :
+\begin{equation}
+\label{eq:7}
+\begin{aligned}
+log(\frac{p}{1-p}) = \beta_0 + \beta_1x_{31-50}+\beta_2x_{51-70}+\beta_3x_{70+}+ \beta_4x_{British Columbia}  +\beta_5x_{Manitoba}+ \beta_6x_{New Brunswick} \\ +\beta_7x_{Newfoundland and Labrador}  +\beta_8x_{Nova Scotia} +\beta_9x_{Ontario}+\beta_{10}x_{Prince Edward Island} +\beta_{11}x_{Quebec} \\ +\beta_{12}x_{Saskatchewan} + \beta_{13}x_{Born outside Canada}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for People's Party is :
+\begin{equation}
+\label{eq:8}
+\begin{aligned}
+log(\frac{p}{1-p}) = \beta_0 + \beta_1x_{Male}+ \beta_2x_{British Columbia} +\beta_3x_{Manitoba}+ \beta_4x_{New Brunswick} +\beta_5x_{Newfoundland and Labrador} \\ +\beta_6x_{Nova Scotia} +\beta_7x_{Ontario}+\beta_8x_{Prince Edward Island} +\beta_9x_{Quebec}+\beta_{10}x_{Saskatchewan} + \beta_{11}x_{Never Attended University}
+\end{aligned}
+\end{equation}
+
+\newpage
+
+3. Figure for Model section
+
+```{r, results = "hide", echo=FALSE, message=FALSE, fig.cap= "ROC Curve for Liberal Party"}
+# ROC curves for model performance
+# install.packages("pROC")
+library(pROC)
+p <- predict(final_Liberal, newdata = survey_data, type = "response")
+roc <- roc(survey_data$vote_Liberal ~ p)
+## The True Positive Rate ##
+TPR <- roc$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red', xlab = "ROC for Survey Data",
+     ylab = "True Positive Rate")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc),3)))
+auc(roc)
+```
+
+
+```{r, results = "hide", echo=FALSE, message=FALSE, fig.cap= "ROC Curve for NDP Party"}
+# install.packages("pROC")
+library(pROC)
+p <- predict(final_NDP, newdata = survey_data, type = "response")
+roc <- roc(survey_data$vote_NDP ~ p)
+## The True Positive Rate ##
+TPR <- roc$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red', xlab = "ROC for Survey Data",
+     ylab = "True Positive Rate")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc),3)))
+auc(roc)
+```
+
+
+
+```{r, results = "hide", echo=FALSE, message=FALSE, fig.cap= "ROC Curve for Green Party"}
+# install.packages("pROC")
+library(pROC)
+p <- predict(final_Green, newdata = survey_data, type = "response")
+roc <- roc(survey_data$vote_Green ~ p)
+## The True Positive Rate ##
+TPR <- roc$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red', xlab = "ROC for Survey Data",
+     ylab = "True Positive Rate")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc),3)))
+auc(roc)
+```
+
+
+```{r, results = "hide", echo=FALSE, message=FALSE, fig.cap= "ROC Curve for BQ Party"}
+# install.packages("pROC")
+library(pROC)
+p <- predict(final_BQ, newdata = survey_data, type = "response")
+roc <- roc(survey_data$vote_BQ ~ p)
+## The True Positive Rate ##
+TPR <- roc$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red', xlab = "ROC for Survey Data",
+     ylab = "True Positive Rate")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc),3)))
+auc(roc)
+```
+
+
+```{r, results = "hide", echo=FALSE, message=FALSE, fig.cap= "ROC Curve for People's Party"}
+# install.packages("pROC")
+library(pROC)
+p <- predict(final_People, newdata = survey_data, type = "response")
+roc <- roc(survey_data$vote_People ~ p)
+## The True Positive Rate ##
+TPR <- roc$sensitivities
+## The False Positive Rate ##
+FPR <- 1 - roc$specificities
+plot(FPR, TPR, xlim = c(0,1), ylim = c(0,1), type = 'l', lty = 1, lwd = 2,col = 'red', xlab = "ROC for Survey Data",
+     ylab = "True Positive Rate")
+abline(a = 0, b = 1, lty = 2, col = 'blue')
+text(0.7,0.4,label = paste("AUC = ", round(auc(roc),3)))
+auc(roc)
+```
+
+\newpage
+
+4. Final model with coefficients for Results section
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for Liberal Party is :
+\begin{equation}
+\label{eq:9}
+\begin{aligned}
+log(\frac{p}{1-p}) = -1.51582 + 0.63471x_{British Columbia}+0.75821x_{Manitoba}+ 1.12743x_{New Brunswick} \\
++1.34506x_{Newfoundland and Labrador}+1.35676x_{Nova Scotia} +1.33393x_{Ontario}+1.43971x_{Prince Edward Island} \\
++ 1.06741x_{Quebec} + 0.14982x_{Saskatchewan} -0.46499x_{Never Attended University} + 0.59676x_{Born outside Canada}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for NDP Party is :
+\begin{equation}
+\label{eq:10}
+\begin{aligned}
+log(\frac{p}{1-p}) = -1.3667 - 0.5976x_{Male}- 0.6307x_{31-50}- 1.1573x_{51-70}- 1.8739x_{70+} \\ + 1.0443x_{British Columbia}
++0.3546x_{Manitoba}- 1.5203x_{New Brunswick} + 1.0828x_{Newfoundland and Labrador} \\ + 0.4989x_{Nova Scotia} +0.5860x_{Ontario}
+- 2.993x_{Prince Edward Island} + 0.1718x_{Quebec}+0.2650x_{Saskatchewan} \\ +0.5008x_{Low Household Income}+0.4339x_{Middle Household Income}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for Green Party is :
+\begin{equation}
+\label{eq:11}
+\begin{aligned}
+log(\frac{p}{1-p}) = -2.911591 - 0.199985x_{Male}+1.646875x_{British Columbia}+0.563332x_{Manitoba} \\
++ 1.659105x_{New Brunswick} +0.118615x_{Newfoundland and Labrador} +1.075677x_{Nova Scotia} +0.776313x_{Ontario} \\ +1.446544x_{Prince Edward Island} +0.826646x_{Quebec}  -0.007498x_{Saskatchewan} -0.385161x_{Never Attended University}\\
+- 0.5548x_{Born outside Canada} + 0.393342x_{Low Household Income}  + 0.152735x_{Middle Household Income}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for BQ Party is :
+\begin{equation}
+\label{eq:12}
+\begin{aligned}
+log(\frac{p}{1-p}) = -22.06485 + 0.38541x_{31-50}+0.95563x_{51-70}+1.12800x_{70+}+ 0.02929x_{British Columbia}- 0.11563x_{Manitoba} \\ -0.16735x_{New Brunswick} - 0.15968x_{Newfoundland and Labrador}- 0.13256x_{Nova Scotia} -0.02822x_{Ontario} \\ -0.17450x_{Prince Edward Island} +20.24754x_{Quebec} - 0.11538x_{Saskatchewan} - 1.48572x_{Born outside Canada}
+\end{aligned}
+\end{equation}
+
+&nbsp;&nbsp;&nbsp;&nbsp;     The final logistic regression model for People's Party is :
+\begin{equation}
+\label{eq:13}
+\begin{aligned}
+log(\frac{p}{1-p}) = -6.1681 + 0.5071x_{Male}+ 1.5277x_{British Columbia} +0.0618x_{Manitoba}+ 1.2692x_{New Brunswick} \\
+- 14.4116x_{Newfoundland and Labrador} + 0.3584x_{Nova Scotia} +0.1543x_{Ontario}+1.1537x_{Prince Edward Island} \\ +1.1629x_{Quebec}+2.0572x_{Saskatchewan} + 1.0319x_{Never Attended University}
+\end{aligned}
+\end{equation}
+
+
+
+
+
+
+
+
+
+
